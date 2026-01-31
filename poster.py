@@ -2,7 +2,8 @@ import os
 import requests
 from generator import generate_next
 
-REPO_RAW = "https://raw.githubusercontent.com/harshitaslayss/insta-bot/main/"
+REPO_RAW = "https://raw.githubusercontent.com/harshitaslayss/insta-post-automator/main/"
+
 
 def git_commit(files):
     os.system('git config --global user.email "bot@github.com"')
