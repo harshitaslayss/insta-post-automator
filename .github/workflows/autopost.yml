@@ -21,4 +21,4 @@ jobs:
         env:
           PAGE_TOKEN: ${{ secrets.PAGE_TOKEN }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
-        run: python main.py
+        run: python poster.py
