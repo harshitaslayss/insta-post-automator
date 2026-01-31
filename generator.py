@@ -40,12 +40,22 @@ def fetch_news():
 
 # ----------------- TF-IDF -----------------
 def select_best_article(articles):
-    corpus = [
-        f"{a['title']} {a['desc']} {a['content']}" for a in articles
-    ]
+    corpus = []
+    valid_articles = []
+
+    for a in articles:
+        text = f"{a['title']} {a['desc']} {a['content']}".strip()
+        if len(text.split()) > 5:  # 🚨 guardrail
+            corpus.append(text)
+            valid_articles.append(a)
+
+    if not corpus:
+        raise RuntimeError("No valid articles for TF-IDF")
+
     tfidf = TfidfVectorizer(stop_words="english")
     scores = tfidf.fit_transform(corpus).toarray().sum(axis=1)
-    return articles[int(np.argmax(scores))]
+    return valid_articles[int(np.argmax(scores))]
+
 
 # ----------------- SLIDE MAKER -----------------
 def make_slide(text_lines, highlight=None):
