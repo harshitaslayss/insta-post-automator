@@ -95,9 +95,17 @@ def generate_slide(article, topic):
     d.text((60,300), topic.upper(), fill="#FFD700", font=font_b)
     d.text((60,380), article["title"], fill="white", font=font_t)
 
-    name = f"slide_{int(time.time())}.png"
-    img.save(name)
+    name = f"slide_{int(time.time())}.jpg"
+    img = img.convert("RGB")  # safety
+    img.save(
+        name,
+        "JPEG",
+        quality=95,
+        subsampling=0,
+        optimize=True
+    )
     return name
+
 
 # ---------- MAIN ----------
 def generate_next():
