@@ -114,10 +114,10 @@ def generate_next():
     trends = detect_trends(news)
 
     for topic, art in trends:
-        if topic in db["recent_topics"]:
-            last = datetime.fromisoformat(db["recent_topics"][topic])
-            if datetime.now() - last < timedelta(hours=6):
-                continue
+        # if topic in db["recent_topics"]:
+        #     last = datetime.fromisoformat(db["recent_topics"][topic])
+        #     if datetime.now() - last < timedelta(hours=6):
+        #         continue
 
         slide = generate_slide(art, topic)
         db["recent_topics"][topic] = datetime.now().isoformat()
