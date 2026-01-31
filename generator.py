@@ -1,89 +1,22 @@
-from PIL import Image, ImageDraw, ImageFont
-from io import BytesIO
+# generator.py
+import os
+import json
+import time
 import requests
 import spacy
-from collections import Counter
-import json
-from datetime import datetime, timezone, timedelta
-import os
-import time
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-# ---------------- CONFIG ----------------
-DB_FILE = "queue_db.json"
-QUERY = "technology india"
 WIDTH, HEIGHT = 1080, 1080
-COOLDOWN_HOURS = 36
+QUERY = "technology india"
 
-newsapi_key = os.getenv("NEWSAPI_KEY")
-gnews_key = os.getenv("GNEWS_KEY")
-mstack_key = os.getenv("MEDIASTACK_KEY")
+NEWS_API_KEY = os.getenv("NEWSAPI_KEY")
 
 nlp = spacy.load("en_core_web_sm")
 
-# ---------------- DB ----------------
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"queue": [], "posted": [], "recent_topics": {}}
-    return json.load(open(DB_FILE))
-
-def save_db(db):
-    json.dump(db, open(DB_FILE, "w"), indent=2)
-
-# ---------------- NEWS ----------------
-def score_article(a):
-    score = 0
-    if a.get("image"): score += 2
-    if len(a.get("desc", "")) > 120: score += 1
-    if any(w in a["title"].lower() for w in ["breaking","launch","wins"]):
-        score += 2
-    return score
-
-def fetch_news():
-    arts, seen = [], set()
-
-    urls = [
-        f"https://newsapi.org/v2/top-headlines?q={QUERY}&apiKey={newsapi_key}",
-        f"https://gnews.io/api/v4/top-headlines?q={QUERY}&token={gnews_key}&lang=en",
-        f"http://api.mediastack.com/v1/news?access_key={mstack_key}&keywords={QUERY}"
-    ]
-
-    for url in urls:
-        try:
-            data = requests.get(url, timeout=10).json()
-            for a in data.get("articles", []) + data.get("data", []):
-                u = a.get("url")
-                if not u or u in seen:
-                    continue
-                seen.add(u)
-                arts.append({
-                    "title": a.get("title",""),
-                    "desc": a.get("description",""),
-                    "url": u,
-                    "image": a.get("image") or a.get("urlToImage"),
-                    "source": (a.get("source") or {}).get("name","News")
-                })
-        except:
-            pass
-    return arts
-
-# ---------------- TREND ----------------
-def detect_trends(articles):
-    counter, bucket = Counter(), {}
-    for a in articles:
-        doc = nlp(f"{a['title']} {a['desc']}")
-        ents = {e.text.title() for e in doc.ents if e.label_ in ["ORG","PERSON","GPE"]}
-        for e in ents:
-            counter[e] += 1
-            bucket.setdefault(e, []).append(a)
-
-    trends = []
-    for t,_ in counter.most_common(3):
-        best = max(bucket[t], key=score_article)
-        trends.append((t, best))
-    return trends
-
-# ---------------- IMAGE ----------------
-def get_font(size):
+# ----------------- FONT -----------------
+def font(size):
     try:
         return ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size
@@ -91,90 +24,66 @@ def get_font(size):
     except:
         return ImageFont.load_default()
 
-def generate_slide(article, topic):
-    img = Image.new("RGB", (WIDTH, HEIGHT), (18,18,18))
+# ----------------- FETCH NEWS -----------------
+def fetch_news():
+    url = f"https://newsapi.org/v2/everything?q={QUERY}&language=en&apiKey={NEWS_API_KEY}"
+    data = requests.get(url, timeout=10).json()
+    return [
+        {
+            "title": a["title"],
+            "desc": a["description"] or "",
+            "content": a["content"] or "",
+            "source": a["source"]["name"],
+        }
+        for a in data.get("articles", [])[:15]
+    ]
+
+# ----------------- TF-IDF -----------------
+def select_best_article(articles):
+    corpus = [
+        f"{a['title']} {a['desc']} {a['content']}" for a in articles
+    ]
+    tfidf = TfidfVectorizer(stop_words="english")
+    scores = tfidf.fit_transform(corpus).toarray().sum(axis=1)
+    return articles[int(np.argmax(scores))]
+
+# ----------------- SLIDE MAKER -----------------
+def make_slide(text_lines, highlight=None):
+    img = Image.new("RGB", (WIDTH, HEIGHT), (15, 15, 15))
     d = ImageDraw.Draw(img)
 
-    title_font = get_font(60)
-    meta_font = get_font(36)
+    y = 260
+    if highlight:
+        d.text((80, y - 80), highlight.upper(), fill="#FFD700", font=font(42))
 
-    d.text((60, 300), topic.upper(), fill="#FFD700", font=meta_font)
-    d.text((60, 380), article["title"], fill="white", font=title_font)
+    for line in text_lines:
+        d.text((80, y), line, fill="white", font=font(64))
+        y += 90
 
-    name = f"slide_{int(time.time())}.jpg"
-    img.save(name, "JPEG", quality=95, subsampling=0, optimize=True)
+    name = f"slide_{int(time.time()*1000)}.jpg"
+    img.save(name, "JPEG", quality=95)
     return name
 
-# ---------------- MAIN API ----------------
-def generate_next():
-    db = load_db()
+# ----------------- MAIN -----------------
+def generate_carousel():
     news = fetch_news()
-    trends = detect_trends(news)
+    article = select_best_article(news)
 
-    now = datetime.now(timezone.utc)
-
-    for topic, art in trends:
-        last = db["recent_topics"].get(topic)
-        if last:
-            last = datetime.fromisoformat(last)
-            if now - last < timedelta(hours=COOLDOWN_HOURS):
-                continue
-
-        slide = generate_slide(art, topic)
-
-        db["recent_topics"][topic] = now.isoformat()
-        db["posted"].append(art)
-        save_db(db)
-
-        caption = f"{art['title']}\n\nSource: {art['source']}"
-        return slide, caption
-
-    save_db(db)
-    return None, None
-
-
-
-
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime
-import time
-
-WIDTH, HEIGHT = 1080, 1080
-
-def get_font(size):
-    try:
-        return ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            size
-        )
-    except:
-        return ImageFont.load_default()
-
-def generate_slide(article, topic):
-    img = Image.new("RGB", (WIDTH, HEIGHT), (18, 18, 18))
-    draw = ImageDraw.Draw(img)
-
-    title_font = get_font(64)
-    topic_font = get_font(36)
-
-    draw.text((60, 300), topic.upper(), fill="#FFD700", font=topic_font)
-    draw.text((60, 380), article["title"], fill="white", font=title_font)
-
-    filename = f"slide_{int(time.time())}.jpg"
-    img.save(
-        filename,
-        "JPEG",
-        quality=95,
-        subsampling=0,
-        optimize=True
+    # Slide 1 – Headline
+    s1 = make_slide(
+        [article["title"][:60] + "..."],
+        highlight="Trending Tech",
     )
-    return filename
 
-def generate_next():
-    article = {
-        "title": "TEST POST — GitHub Actions",
-        "source": "Automation Test"
-    }
+    # Slide 2 – Summary
+    summary = article["desc"] or article["content"]
+    bullets = summary.split(".")[:3]
+    s2 = make_slide([f"• {b.strip()}" for b in bullets if b.strip()])
 
-    slide = generate_slide(article, "TEST")
-    return slide, article
+    # Slide 3 – Source
+    s3 = make_slide(
+        [article["source"]],
+        highlight="Source",
+    )
+
+    return [s1, s2, s3]
